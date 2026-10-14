@@ -1,97 +1,215 @@
-# Air-Guitar-CS249R
+# Air Guitar CS249R (Software-Only ML Air Guitar System)
 
-Welcome to Air Guitar CS249R! This Repo contains the code, resources and supporting 
-materials for the Air Guitar final project for the class CS249R: Machine Learning!
+[![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
+[![MediaPipe](https://img.shields.io/badge/Vision-MediaPipe%20Hands-orange.svg)](https://developers.google.com/mediapipe)
+[![TensorFlow](https://img.shields.io/badge/ML-TensorFlow%20%2F%20Keras-red.svg)](https://tensorflow.org/)
+[![Pygame](https://img.shields.io/badge/Audio-Pygame%20Mixer-green.svg)](https://www.pygame.org/)
+[![Tests](https://img.shields.io/badge/Tests-17%20Passed-brightgreen.svg)]()
 
-At a high level, this project is concerned with two different machine learning models 
-running on the Teensy 4.1: one project classifies gesture IMU data into two classes:
-strum or no strum, while another model is concerned with classifying data from 
-flex sensors attached to four fingers into 13 different chords.
+A 100% software-based, webcam-controlled machine learning Air Guitar system. This project replaces physical sensor gloves, Teensy microcontrollers, and IMU hardware with computer vision hand tracking via **MediaPipe Hands**, invariant geometric and temporal feature engineering, custom **TensorFlow/Keras** neural networks, and low-latency acoustic audio playback via **Pygame**.
 
+---
 
-The repo is organized as follows:
+## 1. Project Overview & Architecture
 
-The base folder contains supporting information and resources, including the schematic for the
-circuit used. 
+### High-Level Concept
+The system tracks both of the player's hands using a standard laptop or desktop RGB webcam:
+1. **Left Hand (Chord Selection):** Static hand configuration is detected, normalized, and classified into one of 13 supported guitar chords using a Deep Multi-Layer Perceptron (MLP) with confidence thresholding and temporal smoothing.
+2. **Right Hand (Strumming Recognition):** Continuous hand motion is tracked across consecutive frames in a 15-frame sliding window, extracting position, displacement, and velocity dynamics to classify strumming strokes (`downstroke`, `upstroke`, `idle`) using an LSTM network with cooldown debouncing.
+3. **Audio Synthesis:** When a valid strum is detected, the audio engine plays the currently selected chord using pre-loaded high-fidelity acoustic guitar audio samples via Pygame.
 
-The audio files folder includes the audio files used for the project. Specfically, the chord_recordings
-subdirectory holds all the audio files played back upon playing the corresponding chord. The files 
-are named with the name of the associated chord and all of them are .wav format.
+> **Clarification:** MediaPipe is solely responsible for computer vision feature extraction (providing 21 3D spatial landmarks per hand). The custom trained machine learning models (MLP and LSTM) perform chord gesture classification and temporal strumming recognition.
 
-The data directory holds all the data collected for this project used for training and validation.
-The flex subdirectory holds the data from flex sensors, while the imu subdirectory holds the data
-from the IMU. All data are stored in .csv format as time series data. All data belonging to one class
-are stored in one .csv file with the name of the associated class, and separate data points are separated
-by empty rows.
+```
+                    +---------------------------+
+                    |    Webcam Feed (30 FPS)   |
+                    +-------------+-------------+
+                                  |
+                                  v
+                    +-------------+-------------+
+                    |      MediaPipe Hands      |
+                    |  (21 landmarks per hand)  |
+                    +-------------+-------------+
+                                  |
+                +-----------------+-----------------+
+                |                                   |
+                v (Left Hand / Chords)              v (Right Hand / Strumming)
+    +-----------------------+           +-----------------------+
+    | Coordinate & Scale    |           | Temporal Sliding      |
+    | Normalization         |           | Window (15 frames)    |
+    | (98 features)         |           | (18 features / frame) |
+    +-----------+-----------+           +-----------+-----------+
+                |                                   |
+                v                                   v
+    +-----------------------+           +-----------------------+
+    | Keras Deep MLP        |           | Keras Temporal LSTM   |
+    | Chord Classifier      |           | Strumming Classifier  |
+    +-----------+-----------+           +-----------+-----------+
+                |                                   |
+                v                                   v
+          Active Chord                       Strum Trigger
+        (Confidence >= 0.60)               (Cooldown >= 250 ms)
+                \                                   /
+                 \                                 /
+                  v                               v
+    +-----------------------------------------------------------+
+    |                    Pygame Audio Engine                    |
+    |           Asynchronous Low-Latency Playback               |
+    |              sounds/chord_recordings/<chord>.wav          |
+    +-----------------------------------------------------------+
+```
 
-The data_collection directory holds all the scripts used to collect data for both models. There are two 
-subdirectories, one for each of the models. Both of them include a python script as well as a Platform.IO
-project. The python script includes further instructions in the top as comments.
+---
 
-The deployment directory contains the final and compiled source code of the project. It is a Platform.IO
-project, and includes the header files for the models used. Most of the source code is included in the 
-src subdirectory. The folder also contains the deployment.py script, which reads the serial data from the
-Teensy running the deployment project, and plays the desired audio file. More detailed instuctions are at the
-top of the python file.
+## 2. Supported Chords & Actions
 
-The experimention folder contains multiple Arduino/Platform.IO projects that we used in our testing to interface
-with the Teensy board.
+### 2.1 Supported Chords (13 Classes)
+The system supports 13 acoustic guitar chords (configurable in [src/config.py](file:///c:/Users/piyus/Desktop/ds%20cp%20airguitar/src/config.py)):
+- **Major Chords:** `A`, `B`, `C`, `D`, `E`, `F`, `G`
+- **Minor Chords:** `Am`, `Bm`, `Cm`, `Dm`, `Em`, `Gm`
+- **Neutral / Uncertain:** When confidence is below threshold or hand is resting, chord playback is held in neutral to prevent false audio triggers.
 
-The notebooks folders contains all the Jupyter Notebooks that we used to train our models. The folder contains
-two notebooks for each sensor type, one for training a fully-connected model and another for training a convolutional
-model.
+### 2.2 Strumming Actions (3 Classes)
+- `idle`: Hand hovering or resting.
+- `downstroke`: Downward sweeping motion across strings.
+- `upstroke`: Upward return stroke.
 
-Lastly, the results directory includes the results of all of our model training attempts for both sensors, including 
-confusion matrices, as well as the TFLite files and the model header files. The two models that we ende up using 
-for the deployment project were the flex-cnn-onlyonefclayer for the Flex sensor model and the strum-cnn-onlyonefclayer
-for the IMU model.
+---
 
+## 3. Repository Structure
 
+```
+Air-Guitar-CS249R/
+├── notebooks/                       # End-to-end JupyterLab ML Pipeline
+│   ├── 01_data_collection.ipynb     # Interactive webcam dataset collection
+│   ├── 02_preprocessing.ipynb       # Feature engineering & session splitting
+│   ├── 03_chord_classification.ipynb# MLP training, evaluation & metrics
+│   ├── 04_strumming_lstm.ipynb      # LSTM temporal sequence training
+│   ├── 05_evaluation_and_export.ipynb# Latency benchmarking & export
+│   └── legacy/                      # Archived CS249R hardware notebooks
+├── src/                             # Core Python Package
+│   ├── air_guitar.py                # Real-time webcam air guitar application
+│   ├── hand_tracking.py             # MediaPipe Hands wrapper & skeleton drawing
+│   ├── feature_extraction.py        # Invariant geometric & velocity feature engineering
+│   ├── inference.py                 # ChordPredictor & StrummingDetector debouncer
+│   ├── audio_engine.py              # Pygame audio engine & asset verification
+│   ├── config.py                    # Global constants, paths, and thresholds
+│   └── generate_smoke_fixture.py    # Synthetic fixture & baseline model generator
+├── dataset/
+│   ├── raw/                         # Raw CSV landmark recordings
+│   ├── processed/                   # Processed feature matrices and metadata
+│   └── smoke_test/                  # Synthetic fixture for offline testing
+├── models/
+│   ├── chord_classifier/            # Keras chord model & label encoder
+│   └── strumming_lstm/              # Keras LSTM strum model & config
+├── sounds/
+│   ├── chord_recordings/            # 13 high quality acoustic guitar WAV files
+│   └── README.md                    # Audio licensing and asset documentation
+├── reports/
+│   └── model_evaluation_report.md   # Benchmarking and model metrics report
+├── docs/
+│   ├── REPOSITORY_AUDIT.md          # Complete audit of legacy hardware removal
+│   ├── DATASET_SCHEMA.md            # Detailed schema and non-leakage rules
+│   └── MODEL_TRAINING.md            # Model specifications and architectures
+├── tests/                           # Unit tests and test suite
+│   ├── test_features.py             # Normalization, angles, scale invariance
+│   ├── test_preprocessing.py        # Schemas, session splitting, missing inputs
+│   ├── test_inference.py            # Latency, smoothing, debouncing
+│   └── test_audio.py                # Asset verification, volume, muting
+├── requirements.txt                 # Clean Python dependencies
+├── .gitignore                       # Ignored caches, videos, and checkpoints
+└── README.md                        # Project documentation
+```
 
-## Chords Gestures
+---
 
-This project supports 13 chords. They are the following: A, A Minor, B, B Minor, C, C Minor, D, D Minor, E, E Minor, F, G, G Minor
+## 4. Hardware-Free Installation & Setup
 
-Since it is hard to use the actual hand positions of these chords, both physically and for data collection and classification, we 
-have come up with our gestures to represent these chords. Each gesture is composed of a combination of 4 fingers: index, middle, ring, 
-and pinky, in that order. A 1 signifies that the finger is held straight, while a 0 signifies that a finger is bent towards the palm of the hand.
-Using this encoding, the following are the gestures for each of the supported Chords:
+No microcontrollers, Teensy boards, gloves, flex sensors, or physical guitars are needed. A desktop or laptop with a built-in or USB webcam and speakers/headphones is all that is required.
 
-a: 0001
+### 4.1 Prerequisites
+- Python 3.10, 3.11, or 3.12 (64-bit).
+- Windows 10/11, macOS, or Linux.
 
-am: 1001
+### 4.2 Windows Setup Guide
 
-b: 1000
+1. **Open PowerShell or Command Prompt** and navigate to the project directory:
+   ```powershell
+   cd "c:\Users\piyus\Desktop\ds cp airguitar"
+   ```
 
-bm: 1111
+2. **Create and Activate a Virtual Environment:**
+   ```powershell
+   python -m venv .venv
+   .venv\Scripts\Activate.ps1
+   ```
+   *(If script execution is disabled, run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` first)*
 
-c: 0110
+3. **Install Dependencies:**
+   ```powershell
+   pip install -r requirements.txt
+   ```
 
-cm: 1011
+4. **Verify the Installation with the Test Suite:**
+   ```powershell
+   pytest -v tests/
+   ```
+   *(All 17 tests will run and pass using the built-in synthetic smoke fixture without requiring a webcam)*
 
-d: 0010
+---
 
-dm: 0100
+## 5. End-to-End JupyterLab ML Pipeline
 
-e: 0000
+Launch JupyterLab:
+```powershell
+jupyter lab
+```
 
-em: 1100
+Execute the five notebooks under `notebooks/` in the following sequence:
 
-f: 1101
+| Step | Notebook | Purpose |
+| :---: | :--- | :--- |
+| **1** | [01_data_collection.ipynb](file:///c:/Users/piyus/Desktop/ds%20cp%20airguitar/notebooks/01_data_collection.ipynb) | Open webcam, record Left hand static chord gestures and Right hand strumming sequences. Saves incrementally to `dataset/raw/`. |
+| **2** | [02_preprocessing.ipynb](file:///c:/Users/piyus/Desktop/ds%20cp%20airguitar/notebooks/02_preprocessing.ipynb) | Performs wrist translation, palm-scale normalization, 98-feature engineering, sliding 15-frame sequence generation, and session-based split (zero data leakage). |
+| **3** | [03_chord_classification.ipynb](file:///c:/Users/piyus/Desktop/ds%20cp%20airguitar/notebooks/03_chord_classification.ipynb) | Trains Random Forest baseline and Keras Deep MLP. Generates confusion matrix and loss/accuracy curves. Exports to `models/chord_classifier/`. |
+| **4** | [04_strumming_lstm.ipynb](file:///c:/Users/piyus/Desktop/ds%20cp%20airguitar/notebooks/04_strumming_lstm.ipynb) | Visualizes motion dynamics ($v_y$) and trains Bidirectional LSTM for sequence recognition. Exports to `models/strumming_lstm/`. |
+| **5** | [05_evaluation_and_export.ipynb](file:///c:/Users/piyus/Desktop/ds%20cp%20airguitar/notebooks/05_evaluation_and_export.ipynb) | Benchmarks inference latency on CPU, verifies audio asset mapping, and generates the final deployment report. |
 
-g: 1101
+---
 
-gm: 1010
+## 6. Running the Real-Time Air Guitar Application
 
-## Hardware Design and Setup
+Once models are trained (or using the built-in verifiable smoke checkpoint), launch the live webcam application:
 
-The hardware aspect of the project is a core component of the overall system. The circuit diagram of the components and their respective connections are shown below. 
+```powershell
+python src/air_guitar.py
+```
 
-<img src="https://github.com/RobJMal/Air-Guitar-CS249R/blob/main/corrected_circuit_schematic.PNG?raw=true" width=300 align=center>
+### Runtime Keyboard Shortcuts:
+- **`q`** or **`ESC`**: Quit cleanly and release camera/audio resources.
+- **`m`**: Toggle audio mute on/off.
+- **`+` / `-`**: Increase or decrease guitar playback volume.
+- **`s`**: Swap handedness (for left-handed guitarists).
+- **`--camera <index>`**: Select external webcam (default: 0).
+- **`--no-mirror`**: Disable selfie mirroring if using an audience-facing camera.
 
+---
 
-This project uses sensors attached to gloves to collect the data and run the application. On one glove the IMU is attached. This is to detect the strumming. The other glove has 4 flex sensors attached, one for each finger except the thumb, and this is used to identify the chords. The gloves have wires running from their pins and is connected to the main board, which contains the MCU and the additional components. 
+## 7. Troubleshooting & FAQs
 
-<img src="https://github.com/RobJMal/Air-Guitar-CS249R/blob/main/imu_glove.jpg?raw=true" width=250 align=left>
-<img src="https://github.com/RobJMal/Air-Guitar-CS249R/blob/main/circuit_board.jpg?raw=true" width=250 align=left>
-<img src="https://github.com/RobJMal/Air-Guitar-CS249R/blob/main/flex_sensor_glove.jpg?raw=true" width=250 align=left>
+- **"Could not open webcam at index 0"**:
+  Make sure your webcam is not in use by another application (Zoom, Teams, Browser). Try `--camera 1`.
+- **"Audio is not playing"**:
+  Verify your speakers are unmuted. Press `m` in the application window to ensure the software engine is not muted. Run `python -c "from src.audio_engine import AudioEngine; print(AudioEngine().verify_assets())"` to confirm all 13 `.wav` files are loaded.
+- **"Chord model not found"**:
+  Run `notebooks/03_chord_classification.ipynb` to train and save the chord model, or run `python src/generate_smoke_fixture.py` to regenerate the baseline smoke checkpoint.
+- **"Hand recognition is jittery"**:
+  Ensure adequate room lighting and position both hands fully inside the camera frame. The application uses a 5-frame majority vote to smooth out minor landmark flickers.
+
+---
+
+## 8. License & Attribution
+
+- MediaPipe Hands is licensed under Apache 2.0 (Google).
+- Audio assets preserved from the Harvard CS249R Air Guitar project repository under educational open-source terms.
+- Software implementation provided under the MIT License.

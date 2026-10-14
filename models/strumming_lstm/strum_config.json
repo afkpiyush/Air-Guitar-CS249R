@@ -1,0 +1,9 @@
+{
+  "sequence_length": 15,
+  "feature_dim": 18,
+  "classes": [
+    "idle",
+    "downstroke",
+    "upstroke"
+  ]
+}

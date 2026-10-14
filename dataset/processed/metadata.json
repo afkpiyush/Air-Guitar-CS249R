@@ -1,0 +1,30 @@
+{
+  "num_chord_samples": 871,
+  "num_strum_sequences": 151,
+  "chord_feature_dim": 98,
+  "strum_sequence_shape": [
+    151,
+    15,
+    18
+  ],
+  "supported_chords": [
+    "a",
+    "am",
+    "b",
+    "bm",
+    "c",
+    "cm",
+    "d",
+    "dm",
+    "e",
+    "em",
+    "f",
+    "g",
+    "gm"
+  ],
+  "strum_classes": [
+    "idle",
+    "downstroke",
+    "upstroke"
+  ]
+}
